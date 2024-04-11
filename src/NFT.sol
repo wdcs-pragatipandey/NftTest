@@ -24,28 +24,31 @@ contract NFTLocked is ERC1155, Ownable {
     mapping(address => uint256) public tierWhitelist;
     mapping(address => uint256) public tier1NFTCount;
     mapping(address => uint256) public tier2NFTCount;
-    mapping(uint256 => uint256) tierStartTimes;
+    mapping(uint256 => uint256) public tierStartTimes;
 
-    uint256 private constant tier1Duration = 1 minutes;
-    uint256 private constant tier2Duration = 1 minutes;
-    uint256 private constant tier3Duration = 1 minutes;
-    uint256 private constant tier4Duration = 1 minutes;
-    uint256 private constant tier5Duration = 1 minutes;
+    uint256 private constant tier1Duration = 30 minutes;
+    uint256 private constant tier2Duration = 30 minutes;
+    uint256 private constant tier3Duration = 30 minutes;
+    uint256 private constant tier4Duration = 30 minutes;
+    uint256 private constant tier5Duration = 30 minutes;
 
     uint256 public constant TST = 0;
     uint256 nftPrice;
 
     string public goldNFTUrl;
     string public blackNFTUrl;
+    uint256 public amount;
 
     constructor(
         string memory _goldNFTUrl,
-        string memory _blackNFTUrl
+        string memory _blackNFTUrl,
+        uint256 _amount
     ) ERC1155("") Ownable(msg.sender) {
-        _mint(msg.sender, TST, 10000 * 10 ** 18, "");
+        _mint(msg.sender, TST, _amount * 10 ** 18, "");
 
         goldNFTUrl = _goldNFTUrl;
         blackNFTUrl = _blackNFTUrl;
+        amount = _amount;
 
         tierDurations[1] = tier1Duration;
         tierDurations[2] = tier2Duration;
@@ -128,6 +131,10 @@ contract NFTLocked is ERC1155, Ownable {
 
     function setBlackNFTUrl(string calldata _blackNFTUrl) external onlyOwner {
         blackNFTUrl = _blackNFTUrl;
+    }
+
+    function setAmount(uint256 _amount) external onlyOwner {
+        amount = _amount;
     }
 
     function withdraw() external onlyOwner {

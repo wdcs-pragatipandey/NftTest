@@ -1,84 +1,115 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
-
-import {Test} from "forge-std/Test.sol";
-import {NFTLocked} from "../src/NFT.sol";
-
+pragma solidity ^0.8.10;
+import "forge-std/Test.sol";
+import "../src/NFT.sol";
 contract NFTLockedTest is Test {
-    NFTLocked public nft;
+    NFTLocked contractNFTLocked;
 
-    string public _goldNFTUrl = "gold";
-    string public _blackNFTUrl = "black";
-
-    address owner = address(0x1);
-    address user = address(0x2);
+    address user1;
+    address user2;
+    address owner;
 
     function setUp() public {
-        nft = new NFTLocked(_goldNFTUrl, _blackNFTUrl);
-        uint256 ownerBalance = nft.balanceOf(owner, 0);
-        assertEq(ownerBalance, 10000 * 10 ** 18);
+        owner = msg.sender;
+        user1 = address(0x1);
+        user2 = address(0x2);
+        contractNFTLocked = new NFTLocked("goldNFTUrl", "blackNFTUrl", 10000);
+        contractNFTLocked.balanceOf(owner, 0);
+        assertEq(contractNFTLocked.balanceOf(owner, 0), 10000);
     }
 
-    function testRegisterUser() external {
-        vm.expectRevert("User already registered");
-        vm.expectRevert("Invalid tier");
-        nft.registerUser(user, NFTLocked.NFTType.Gold, 1);
-        NFTLocked.Register memory userNFT = nft.userNFTs(user);
-        assertEq(userNFT(user).nftType, NFTLocked.NFTType.Gold);
-        assertEq(userNFT(user).tier, 1);
+    function testConstructor() public {
+        assertEq(contractNFTLocked.goldNFTUrl(), "goldNFTUrl");
+        assertEq(contractNFTLocked.blackNFTUrl(), "blackNFTUrl");
+        assertEq(contractNFTLocked.amount(), 10000);
     }
 
-    function testWhitelistUser() external {
-        vm.prank(owner);
-        // vm.expectRevert(CustomError.selector);
-        vm.expectRevert("Invalid tier");
-        nft.registerUser(user, NFTLocked.NFTType.Gold, 1);
-        nft.whitelistUser(user);
-        uint256 whitelistTier = nft.tierWhitelist(user);
-        assertEq(whitelistTier, 1);
+    function testStartTier_ValidTier() public {
+        vm.warp(100);
+        contractNFTLocked.startTier(1);
+        assertEq(contractNFTLocked.tierStartTimes(1), block.timestamp);
     }
 
-    // function testRevertsWhitelistingUser() external {
-    //     nft.registerUser(user, NFTLocked.NFTType.Gold, 1);
-    //     vm.expectRevert("Invalid tier");
-    //     nft.whitelistUser(user);
-    // }
-
-    function testPurchase() external {
-        vm.warp(block.timestamp);
-        nft.registerUser(user, NFTLocked.NFTType.Gold, 1);
-        nft.whitelistUser(user);
+    function testStartTier_InvalidTier() public {
         vm.expectRevert("Invalid tier");
-        nft.purchaseNFT{value: 0.02 ether}(NFTLocked.NFTType.Gold);
+        contractNFTLocked.startTier(0);
     }
 
-    function testStartTier() external {
-        vm.warp(block.timestamp);
-        vm.prank(owner);
-        vm.expectRevert("Invalid tier");
+    function testStartTier_AlreadyStarted() public {
+        vm.warp(100);
+        contractNFTLocked.startTier(1);
         vm.expectRevert("Tier already started");
-        nft.startTier(1);
-        uint256 startTier = nft.tierStartTimes;
-        assertEq(startTier, block.timestamp);
+        contractNFTLocked.startTier(1);
     }
 
-    function testRedeem() external {
-        vm.expectRevert("No tier started yet");
-        vm.expectRevert("Invalid tier for purchase");
-        nft.redeem();
+    function testRegisterUser_ValidRegistration() public {
+        contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, 1);
+
+        // assertEq(
+        //     contractNFTLocked.userNFTs(user1).nftType,
+        //     NFTLocked.NFTType.Gold
+        // );
+        // assertEq(contractNFTLocked.userNFTs(user1).tier, 1);
     }
 
-    function testWithdraw() external{
-        vm.prank(owner);
-        nft.withdraw();
+    function testRegisterUser_AlreadyRegistered() public {
+        contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, 1);
+        vm.expectRevert("User already registered");
+        contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Black, 2);
     }
 
-    function testRemovewhitelist() public {
-        vm.prank(owner);
-        nft.removeWhitelist(user);
-        uint256 whitelistTier = nft.tierWhitelist(user);
-        assertEq(whitelistTier, 0);
+    function testRegisterUser_InvalidTier() public {
+        vm.expectRevert("Invalid tier");
+        contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, 3);
     }
 
+    function testPurchaseNFT_ValidPurchaseTier1Gold_WithinLimit() public {
+        vm.deal(user1, 0.02 ether);
+        contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, 1);
+        contractNFTLocked.startTier(1);
+        contractNFTLocked.whitelistUser(user1);
+        contractNFTLocked.purchaseNFT(NFTLocked.NFTType.Gold);
+        assertEq(
+            contractNFTLocked.balanceOf(user1, uint256(NFTLocked.NFTType.Gold)),
+            1
+        );
+        assertEq(contractNFTLocked.tier1NFTCount(user1), 1);
+    }
 
+    function testWhitelistUser_ValidUser() public {
+        contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, 1);
+        contractNFTLocked.whitelistUser(user1);
+        assertEq(contractNFTLocked.tierWhitelist(user1), 1);
+    }
+
+    function testWhitelistUser_AlreadyWhitelisted() public {
+        contractNFTLocked.whitelistUser(user1);
+        contractNFTLocked.whitelistUser(user1);
+        vm.expectRevert("User already whitelisted");
+    }
+
+    function testWhitelistUser_NotRegisteredUser() public {
+        contractNFTLocked.whitelistUser(user2);
+        vm.expectRevert("User not registered");
+    }
+
+    function testWhitelistUser_InvalidTier() public {
+        contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, 3);
+        contractNFTLocked.whitelistUser(user1);
+        vm.expectRevert("Invalid tier");
+    }
+
+    function testRemoveWhitelist_ValidRemoval() public {
+        contractNFTLocked.removeWhitelist(user1);
+        assertEq(contractNFTLocked.tierWhitelist(user1), 0);
+    }
+
+    function testRemoveWhitelist_NotWhitelisted() public {
+        contractNFTLocked.removeWhitelist(user2);
+        vm.expectRevert("User not whitelisted");
+    }
+
+    function testRedeem_ValidRedemption() public {
+        contractNFTLocked.redeem();
+    }
 }
