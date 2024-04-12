@@ -7,14 +7,13 @@ import "../src/NFT.sol";
 contract DeployNFT is Script {
     string public _goldNFTUrl = "gold";
     string public _blackNFTUrl = "black";
-    uint256 amount = 10000;
 
     uint256 public deployerKey;
 
     function run() external returns (NFTLocked) {
         deployerKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerKey);
-        NFTLocked ourToken = new NFTLocked(_goldNFTUrl, _blackNFTUrl, amount);
+        NFTLocked ourToken = new NFTLocked(_goldNFTUrl, _blackNFTUrl);
         vm.stopBroadcast();
         return ourToken;
     }
