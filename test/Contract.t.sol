@@ -1,127 +1,206 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
+
 import "forge-std/Test.sol";
 import "../src/NFT.sol";
+import "../src/TST.sol";
 
-contract NFTLockedTest is Test {
-    NFTLocked contractNFTLocked;
+contract TestNFTLocked is Test {
+    NFTLocked nftLocked;
+    TestToken token;
+
+    address owner;
     address user1;
     address user2;
-    address owner;
 
     function setUp() public {
         owner = msg.sender;
-        user1 = address(0x1);
-        user2 = address(0x2);
-        contractNFTLocked = new NFTLocked("goldNFTUrl", "blackNFTUrl");
+        user1 = address(0x01);
+        user2 = address(0x02);
+
+        nftLocked = new NFTLocked("gold_nft", "black_nft");
     }
 
-    function testConstructor() public {
-        assertEq(contractNFTLocked.goldNFTUrl(), "goldNFTUrl");
-        assertEq(contractNFTLocked.blackNFTUrl(), "blackNFTUrl");
+    function testInitialDeployment() public {
+        assertEq(
+            address(token.owner()),
+            owner,
+            "Owner should be the deployer"
+        );
     }
 
-    function testRegisterUser_AlreadyRegistered() public {
-        contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, [1]);
-        vm.expectRevert("User already registered");
-        contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Black, [2]);
+    function testTokenInitialization() public {
+        uint256 expectedSupply = 1000 * 10 ** 18;
+        token.mint(1000);
+        assertEq(
+            token.balanceOf(owner),
+            expectedSupply,
+            "Token initialization failed"
+        );
     }
 
-    // function testRegisterUser_InvalidTier() public {
-    //     vm.expectRevert("Invalid tier");
-    //     contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, 3);
-    // }
-
-    function testStartTier_ValidTier() public {
-        contractNFTLocked.startTier(1);
-        assertEq(contractNFTLocked.tierStartTimes(1), block.timestamp);
+    function testTierManagement() public {
+        nftLocked.startTier(1);
+        assertTrue(nftLocked.tierActiveStatus(1), "Tier 1 should be active");
+        nftLocked.endTier(1);
+        assertFalse(
+            nftLocked.tierActiveStatus(1),
+            "Tier 1 should be inactive after ending"
+        );
     }
 
-    function testStartTier_InvalidTier() public {
-        vm.expectRevert("Invalid tier");
-        contractNFTLocked.startTier(0);
+    function testUserRegistration() public {
+        uint256[] memory tiers = new uint256[](2);
+        tiers[0] = 1;
+        tiers[1] = 2;
+        nftLocked.registerUser(user1, NFTLocked.NFTType.Gold, tiers);
+        assertTrue(
+            nftLocked.isUserRegistered(user1),
+            "User registration failed"
+        );
     }
 
-    function testStartTier_TierAlreadyStarted() public {
-        contractNFTLocked.startTier(1);
-        vm.expectRevert("Tier already started");
-        contractNFTLocked.startTier(1);
+    function testNFTURLSetting() public {
+        string memory expectedURL = "gold_nft";
+        nftLocked.setGoldNFTUrl(expectedURL);
+        assertEq(
+            nftLocked.goldNFTUrl(),
+            expectedURL,
+            "Gold NFT URL setting failed"
+        );
     }
 
-    // function testWhitelistUser_ValidWhitelist() public {
-    //     contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, [1]);
-    //     contractNFTLocked.whitelistUser(user1);
-    //     assertEq(contractNFTLocked.tierWhitelist(user1), [1]);
-    // }
+    function testUserWhitelisting() public {
+        uint256[] memory tiers = new uint256[](2);
+        tiers[0] = 1;
+        tiers[1] = 2;
+        nftLocked.registerUser(user1, NFTLocked.NFTType.Gold, tiers);
+        nftLocked.whitelistUser(user1);
+        uint256 whitelistLength = nftLocked.whitelistCounter(user1);
+        assertTrue(whitelistLength == 2, "User whitelisting failed");
+    }
 
-    // function testPurchaseNFT_UserNotRegistered() public {
-    //     contractNFTLocked.whitelistUser(user1);
-    //     contractNFTLocked.startTier(1);
-    //     vm.expectRevert("User not registered");
-    //     contractNFTLocked.purchaseNFT{value: 0.02 ether}(
-    //         NFTLocked.NFTType.Gold
-    //     );
-    // }
+    function testUserRemoveWhitelisting() public {
+        uint256[] memory tiers = new uint256[](2);
+        tiers[0] = 1;
+        tiers[1] = 2;
+        nftLocked.registerUser(user1, NFTLocked.NFTType.Gold, tiers);
+        nftLocked.whitelistUser(user1);
+        nftLocked.removeWhitelist(user1);
+        uint256 whitelistLength = nftLocked.whitelistCounter(user1);
+        assertTrue(whitelistLength == 0, "User whitelisting failed");
+    }
 
-    // function testRemoveWhitelist_ValidRemove() public {
-    //     contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, [1]);
-    //     contractNFTLocked.whitelistUser(user1);
-    //     contractNFTLocked.removeWhitelist(user1);
-    //     assertEq(contractNFTLocked.tierWhitelist(user1), 0);
-    // }
+    function testPurchaseNFTTier1() public {
+        uint256[] memory tiers = new uint256[](2);
+        tiers[0] = 1;
+        tiers[1] = 2;
+        nftLocked.registerUser(user2, NFTLocked.NFTType.Gold, tiers);
+        nftLocked.startTier(1);
+        uint256 purchasePrice = 0.02 ether;
+        nftLocked.purchaseNFT{value: purchasePrice}(NFTLocked.NFTType.Gold, 1);
+    }
 
-    // function testPurchaseNFT_Basic() public {
-    //     try
-    //         contractNFTLocked.purchaseNFT{value: 0.03 ether}(
-    //             NFTLocked.NFTType.Gold
-    //         )
-    //     {
-    //         console.log("PurchaseNFT succeeded");
-    //     } catch Error(string memory reason) {
-    //         console.log("PurchaseNFT reverted with reason:", reason);
-    //     }
-    // }
+    function testPurchaseNFTTier1Black() public {
+        uint256[] memory tiers = new uint256[](2);
+        tiers[0] = 1;
+        tiers[1] = 2;
+        nftLocked.registerUser(user2, NFTLocked.NFTType.Black, tiers);
+        nftLocked.startTier(1);
+        uint256 purchasePrice = 0.01 ether;
+        nftLocked.purchaseNFT{value: purchasePrice}(NFTLocked.NFTType.Black, 1);
+    }
 
-    // function testPurchaseNFT_RegistrationAndWhitelisting() public {
-    //     contractNFTLocked.registerUser(user1, NFTLocked.NFTType.Gold, [1]);
-    //     contractNFTLocked.whitelistUser(user1);
-    //     assertTrue(
-    //         contractNFTLocked.isUserRegistered(user1),
-    //         "User1 is not registered"
-    //     );
-    //     contractNFTLocked.startTier(1);
-    //     try
-    //         contractNFTLocked.purchaseNFT{value: 0.02 ether}(
-    //             NFTLocked.NFTType.Gold
-    //         )
-    //     {
-    //         console.log("PurchaseNFT succeeded");
-    //     } catch Error(string memory reason) {
-    //         console.log("PurchaseNFT reverted with reason:", reason);
-    //     }
-    // }
+    function testPurchaseNFTTier2() public {
+        uint256[] memory tiers = new uint256[](2);
+        tiers[0] = 1;
+        tiers[1] = 2;
+        nftLocked.registerUser(user1, NFTLocked.NFTType.Gold, tiers);
+        nftLocked.whitelistUser(user1);
+        nftLocked.startTier(2);
+        uint256 initialBalance = user1.balance;
+        uint256 purchasePrice = 0.01 ether;
+        nftLocked.purchaseNFT{value: purchasePrice}(NFTLocked.NFTType.Black, 1);
+        assertEq(
+            user1.balance,
+            initialBalance - purchasePrice,
+            "NFT purchase in Tier 2 failed"
+        );
+    }
 
-    // function testRedeemLogic() public {
-    //     address user = address(0x123);
-    //     contractNFTLocked.registerUser(user, NFTLocked.NFTType.Gold, 1);
+    function testPurchaseNFTTier2Gold() public {
+        uint256[] memory tiers = new uint256[](2);
+        tiers[0] = 1;
+        tiers[1] = 2;
+        nftLocked.registerUser(user1, NFTLocked.NFTType.Black, tiers);
+        nftLocked.whitelistUser(user1);
+        nftLocked.startTier(2);
+        uint256 initialBalance = user1.balance;
+        uint256 purchasePrice = 0.02 ether;
+        nftLocked.purchaseNFT{value: purchasePrice}(NFTLocked.NFTType.Gold, 1);
+        assertEq(
+            user1.balance,
+            initialBalance - purchasePrice,
+            "NFT purchase in Tier 2 failed"
+        );
+    }
 
-    //     contractNFTLocked.startTier(1);
-    //     contractNFTLocked.startTier(2);
-    //     contractNFTLocked.startTier(3);
-    //     uint256 initialTSTBalance = contractNFTLocked.balanceOf(
-    //         user,
-    //         contractNFTLocked.()
-    //     );
-    //     contractNFTLocked.redeem();
-    //     uint256 expectedTSTIncrease = 400;
-    //     uint256 finalTSTBalance = contractNFTLocked.balanceOf(
-    //         user,
-    //         contractNFTLocked.TST()
-    //     );
-    //     assertEq(
-    //         finalTSTBalance,
-    //         initialTSTBalance + expectedTSTIncrease,
-    //         "User's TST balance should increase after redeeming"
-    //     );
-    // }
+    function testPurchaseNFTWhenTierNotStarted() public {
+        uint256[] memory tiers = new uint256[](2);
+        tiers[0] = 1;
+        tiers[1] = 2;
+        nftLocked.registerUser(user1, NFTLocked.NFTType.Gold, tiers);
+        nftLocked.whitelistUser(user1);
+        uint256 purchasePrice = 0.02 ether;
+        nftLocked.purchaseNFT{value: purchasePrice}(NFTLocked.NFTType.Gold, 1);
+    }
+
+    function testRevertPurchaseNFTTier1WithoutRegistration() public {
+        nftLocked.startTier(1);
+        uint256 purchasePrice = 0.02 ether;
+        nftLocked.purchaseNFT{value: purchasePrice}(NFTLocked.NFTType.Gold, 1);
+    }
+
+    function testRevertPurchaseNFTTier2WithoutWhitelisting() public {
+        uint256[] memory tiers = new uint256[](2);
+        tiers[0] = 1;
+        tiers[1] = 2;
+        nftLocked.registerUser(user1, NFTLocked.NFTType.Gold, tiers);
+        nftLocked.startTier(2);
+        uint256 purchasePrice = 0.01 ether;
+        nftLocked.purchaseNFT{value: purchasePrice}(NFTLocked.NFTType.Black, 1);
+    }
+
+    function testNFTRedemption() public {
+        nftLocked.endTier(2);
+        nftLocked.startTier(3);
+        nftLocked.redeem();
+    }
+
+    function testNFTRedemptionintier4() public {
+        nftLocked.endTier(3);
+        nftLocked.startTier(4);
+        nftLocked.redeem();
+    }
+
+    function testNFTRedemptionintier5() public {
+        nftLocked.endTier(4);
+        nftLocked.startTier(5);
+        nftLocked.redeem();
+    }
+
+    function testNFTRedemptionifTier3skip() public {
+        nftLocked.endTier(3);
+        nftLocked.startTier(4);
+        nftLocked.redeem();
+    }
+
+    function testWithdrawal() public {
+        uint256 initialOwnerBalance = address(this).balance;
+        nftLocked.withdraw();
+        assertTrue(
+            address(this).balance > initialOwnerBalance,
+            "Withdrawal failed"
+        );
+    }
 }

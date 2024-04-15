@@ -2,9 +2,9 @@
 pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "../src/TST.sol";
 
-contract NFTLocked is ERC20, ERC1155, Ownable {
+contract NFTLocked is ERC1155, TestToken {
     // enum to choose nft type
     enum NFTType {
         Gold,
@@ -21,10 +21,13 @@ contract NFTLocked is ERC20, ERC1155, Ownable {
     // mappings
     mapping(address => Register) public userNFTs;
     mapping(uint256 => uint256) public tierDurations;
-    mapping(address => uint256[]) public tierWhitelist;
+    mapping(address => uint256) public whitelistCounter;
+    mapping(address => mapping(uint256 => bool)) public tierWhitelist;
     mapping(address => uint256) public tier1NFTCount;
     mapping(address => uint256) public tier2NFTCount;
     mapping(uint256 => uint256) public tierStartTimes;
+    mapping(address => bool) public isRegistered;
+    mapping(uint256 => bool) public tierActiveStatus;
 
     event UserRegistered(address indexed user, NFTType nftType, uint256[] tier);
 
@@ -37,10 +40,13 @@ contract NFTLocked is ERC20, ERC1155, Ownable {
     string public goldNFTUrl;
     string public blackNFTUrl;
 
+    TestToken Token =
+        TestToken(address(0x5E52dEc931FFb32f609681B8438A51c675cc232d));
+
     constructor(
         string memory _goldNFTUrl,
         string memory _blackNFTUrl
-    ) ERC20("TestToken", "TST") ERC1155("") Ownable(msg.sender) {
+    ) ERC1155("") {
         goldNFTUrl = _goldNFTUrl;
         blackNFTUrl = _blackNFTUrl;
 
@@ -51,15 +57,20 @@ contract NFTLocked is ERC20, ERC1155, Ownable {
         tierDurations[5] = tier5Duration;
     }
 
-    function initialize(uint256 _amount) external onlyOwner {
-        _mint(msg.sender, _amount * 10 ** 18);
-    }
+    // function initialize(uint256 _amount) external onlyOwner {
+    //     _mint(msg.sender, _amount * 10 ** 18);
+    // }
 
-    // owner can start tiers
     function startTier(uint256 _tier) external onlyOwner {
         require(_tier >= 1 && _tier <= 5, "Invalid tier");
         require(tierStartTimes[_tier] == 0, "Tier already started");
         tierStartTimes[_tier] = block.timestamp;
+        tierActiveStatus[_tier] = true;
+    }
+
+    function endTier(uint256 tierId) public {
+        require(tierActiveStatus[tierId], "Tier not active");
+        tierActiveStatus[tierId] = false;
     }
 
     function registerUser(
@@ -73,52 +84,60 @@ contract NFTLocked is ERC20, ERC1155, Ownable {
         emit UserRegistered(_user, _nftType, _tier);
     }
 
+    function whitelistUser(address _user) external {
+        uint256[] memory userTiers = userNFTs[_user].tier;
+        for (uint256 i = 0; i < userTiers.length; i++) {
+            tierWhitelist[_user][userTiers[i]] = true;
+            whitelistCounter[_user]++;
+        }
+    }
+
+    function removeWhitelist(address _user) external onlyOwner {
+        whitelistCounter[_user] = 0;
+        for (uint256 i = 1; i <= 5; i++) {
+            delete tierWhitelist[_user][i];
+        }
+    }
+
     function isUserRegistered(address _user) public view returns (bool) {
         return userNFTs[_user].tier.length > 0;
     }
 
     function purchaseNFT(NFTType _nftType, uint256 _amount) external payable {
         require(userNFTs[msg.sender].tier.length > 0, "User not registered");
-        require(tierWhitelist[msg.sender].length > 0, "User not whitelisted");
-
+        require(whitelistCounter[msg.sender] > 0, "User not whitelisted");
         uint256 currentTier = getCurrentStartedTier();
         require(
             currentTier == 1 || currentTier == 2,
             "Invalid tier for purchase"
         );
+        require(currentTier > 0, "No tier started yet");
+        require(tierActiveStatus[currentTier], "Tier not active");
+
         uint256 price;
         uint256 purchaseLimit;
 
         if (currentTier == 1) {
             price = (_nftType == NFTType.Gold) ? 0.02 ether : 0.01 ether;
             purchaseLimit = 5;
-            tier1NFTCount[msg.sender]++;
+            tier1NFTCount[msg.sender] += _amount;
         } else {
             price = (_nftType == NFTType.Gold) ? 0.02 ether : 0.01 ether;
             purchaseLimit = 3;
-            tier2NFTCount[msg.sender]++;
+            tier2NFTCount[msg.sender] += _amount;
         }
 
         uint256 totalPrice = price * _amount;
 
         require(msg.value >= totalPrice, "Insufficient funds");
         uint256 nftCount = getNFTCountByType(msg.sender, _nftType);
-        require(nftCount <= purchaseLimit, "Purchase limit reached");
+        require(nftCount + _amount <= purchaseLimit, "Purchase limit reached");
 
         _mint(msg.sender, uint256(_nftType), _amount, "");
 
         if (msg.value > totalPrice) {
             payable(msg.sender).transfer(msg.value - totalPrice);
         }
-    }
-
-    function whitelistUser(address _user) external onlyOwner {
-        require(userNFTs[_user].tier.length <= 2, "Invalid tier");
-        tierWhitelist[_user] = userNFTs[_user].tier;
-    }
-
-    function removeWhitelist(address _user) external onlyOwner {
-        delete tierWhitelist[_user];
     }
 
     function setGoldNFTUrl(string calldata _goldNFTUrl) external onlyOwner {
@@ -130,61 +149,74 @@ contract NFTLocked is ERC20, ERC1155, Ownable {
     }
 
     function withdraw() external onlyOwner {
-        payable(owner()).transfer(address(this).balance);
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No funds to withdraw");
+        payable(owner()).transfer(balance);
     }
 
     function redeem() external {
         uint256 currentTier = getCurrentStartedTier();
-        require(currentTier > 0, "No tier started yet");
         require(
-            currentTier == 3 || currentTier == 4 || currentTier == 5,
+            currentTier >= 3 && currentTier <= 5,
             "Invalid tier for redemption"
         );
+
         Register memory userNFT = userNFTs[msg.sender];
 
-        uint256 totalTST = 0;
-        if (userNFT.nftType == NFTType.Gold) {
-            totalTST = 100;
-        } else {
-            totalTST = 50;
-        }
-
+        uint256 totalTST = (userNFT.nftType == NFTType.Gold) ? 100 : 50;
         uint256 totalNFTs = getTotalNFTsPurchased(msg.sender);
+
         uint256 tier3Tokens = (totalTST * 50) / 100;
         uint256 tier4Tokens = (totalTST * 10) / 100;
         uint256 tier5Tokens = (totalTST * 40) / 100;
-        uint256 currentTierTokens = 0;
+        uint256 missedTierTokens = 0;
 
-        if (currentTier == 3) {
-            currentTierTokens += tier3Tokens;
-        } else if (currentTier == 4) {
-            if (tierStartTimes[3] >= tierStartTimes[4]) {
-                currentTierTokens += tier3Tokens + tier4Tokens;
-            } else {
-                currentTierTokens += tier4Tokens;
-            }
-        } else if (currentTier == 5) {
-            if (tierStartTimes[4] >= tierStartTimes[5]) {
-                currentTierTokens += tier3Tokens + tier4Tokens + tier5Tokens;
-            } else {
-                currentTierTokens += tier5Tokens;
+        for (uint256 i = 3; i < currentTier; i++) {
+            if (tierStartTimes[i] == 0) {
+                if (i == 3) {
+                    missedTierTokens += tier3Tokens;
+                } else if (i == 4) {
+                    if (tierStartTimes[3] == 0) {
+                        missedTierTokens += tier3Tokens;
+                    }
+                    missedTierTokens += tier4Tokens;
+                }
             }
         }
+        uint256 currentTierTokens;
 
+        if (currentTier == 3) {
+            currentTierTokens = tier3Tokens;
+        } else if (currentTier == 4) {
+            if (tierStartTimes[3] == 0) {
+                currentTierTokens = tier3Tokens;
+            }
+            currentTierTokens += tier4Tokens;
+        } else if (currentTier == 5) {
+            if (tierStartTimes[3] == 0) {
+                missedTierTokens += tier3Tokens;
+            }
+            if (tierStartTimes[4] == 0) {
+                missedTierTokens += tier4Tokens;
+            }
+            currentTierTokens = tier5Tokens;
+        }
+
+        currentTierTokens += missedTierTokens;
         uint256 totalTokens = (totalNFTs * totalTST) / 100;
         uint256 redeemableTokens = (totalTokens * currentTierTokens) / 100;
 
         require(
-            balanceOf(address(this)) >= redeemableTokens,
-            "Insufficient TST balance in contract"
+            Token.balanceOf(owner()) >= redeemableTokens,
+            "Insufficient TST balance in owner's account"
         );
-        transfer(msg.sender, redeemableTokens);
+        Token.transfer(msg.sender, redeemableTokens);
     }
 
     function getCurrentStartedTier() internal view returns (uint256) {
         uint256 currentTier = 0;
         for (uint256 i = 1; i <= 5; i++) {
-            if (tierStartTimes[i] != 0) {
+            if (tierStartTimes[i] != 0 && tierActiveStatus[i]) {
                 currentTier = i;
             }
         }
@@ -197,10 +229,8 @@ contract NFTLocked is ERC20, ERC1155, Ownable {
     ) internal view returns (uint256) {
         if (_nftType == NFTType.Gold) {
             return tier1NFTCount[_user];
-        } else if (_nftType == NFTType.Black) {
-            return tier2NFTCount[_user];
         } else {
-            revert("Invalid NFT type");
+            return tier2NFTCount[_user];
         }
     }
 
