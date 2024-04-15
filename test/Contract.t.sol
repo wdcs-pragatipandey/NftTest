@@ -22,11 +22,7 @@ contract TestNFTLocked is Test {
     }
 
     function testInitialDeployment() public {
-        assertEq(
-            address(token.owner()),
-            owner,
-            "Owner should be the deployer"
-        );
+        assertEq(address(token.owner()), owner, "Owner should be the deployer");
     }
 
     function testTokenInitialization() public {
