@@ -3,7 +3,6 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../src/TST.sol";
-
 contract NFTLocked is ERC1155, TestToken {
     // enum to choose nft type
     enum NFTType {
@@ -37,19 +36,10 @@ contract NFTLocked is ERC1155, TestToken {
     uint256 private constant tier4Duration = 30 minutes;
     uint256 private constant tier5Duration = 30 minutes;
 
-    string public goldNFTUrl;
-    string public blackNFTUrl;
-
     TestToken Token =
-        TestToken(address(0x5E52dEc931FFb32f609681B8438A51c675cc232d));
+        TestToken(address(0x5FbDB2315678afecb367f032d93F642f64180aa3));
 
-    constructor(
-        string memory _goldNFTUrl,
-        string memory _blackNFTUrl
-    ) ERC1155("") {
-        goldNFTUrl = _goldNFTUrl;
-        blackNFTUrl = _blackNFTUrl;
-
+    constructor() ERC1155("ipfs://CID/{id}.json") {
         tierDurations[1] = tier1Duration;
         tierDurations[2] = tier2Duration;
         tierDurations[3] = tier3Duration;
@@ -57,9 +47,9 @@ contract NFTLocked is ERC1155, TestToken {
         tierDurations[5] = tier5Duration;
     }
 
-    // function initialize(uint256 _amount) external onlyOwner {
-    //     _mint(msg.sender, _amount * 10 ** 18);
-    // }
+    function setURI(string memory newuri) public onlyOwner {
+        _setURI(newuri);
+    }
 
     function startTier(uint256 _tier) external onlyOwner {
         require(_tier >= 1 && _tier <= 5, "Invalid tier");
@@ -140,17 +130,9 @@ contract NFTLocked is ERC1155, TestToken {
         }
     }
 
-    function setGoldNFTUrl(string calldata _goldNFTUrl) external onlyOwner {
-        goldNFTUrl = _goldNFTUrl;
-    }
-
-    function setBlackNFTUrl(string calldata _blackNFTUrl) external onlyOwner {
-        blackNFTUrl = _blackNFTUrl;
-    }
-
     function withdraw() external onlyOwner {
         uint256 balance = address(this).balance;
-        require(balance > 0, "No funds to withdraw");
+        // require(balance>0, "No fund to withdraw");
         payable(owner()).transfer(balance);
     }
 
@@ -160,57 +142,50 @@ contract NFTLocked is ERC1155, TestToken {
             currentTier >= 3 && currentTier <= 5,
             "Invalid tier for redemption"
         );
-
         Register memory userNFT = userNFTs[msg.sender];
-
         uint256 totalTST = (userNFT.nftType == NFTType.Gold) ? 100 : 50;
-        uint256 totalNFTs = getTotalNFTsPurchased(msg.sender);
 
+        uint256 totalNFTs = getTotalNFTsPurchased(msg.sender);
         uint256 tier3Tokens = (totalTST * 50) / 100;
         uint256 tier4Tokens = (totalTST * 10) / 100;
         uint256 tier5Tokens = (totalTST * 40) / 100;
         uint256 missedTierTokens = 0;
 
-        for (uint256 i = 3; i < currentTier; i++) {
-            if (tierStartTimes[i] == 0) {
-                if (i == 3) {
-                    missedTierTokens += tier3Tokens;
-                } else if (i == 4) {
-                    if (tierStartTimes[3] == 0) {
-                        missedTierTokens += tier3Tokens;
-                    }
-                    missedTierTokens += tier4Tokens;
-                }
-            }
+        if (
+            currentTier >= 3 &&
+            tierStartTimes[3] != 0 &&
+            block.timestamp > (tierStartTimes[3] + tierDurations[3])
+        ) {
+            missedTierTokens += tier3Tokens;
         }
-        uint256 currentTierTokens;
 
+        if (
+            currentTier >= 4 &&
+            tierStartTimes[4] != 0 &&
+            block.timestamp > (tierStartTimes[4] + tierDurations[4])
+        ) {
+            missedTierTokens += tier4Tokens;
+        }
+
+        uint256 currentTierTokens;
         if (currentTier == 3) {
             currentTierTokens = tier3Tokens;
         } else if (currentTier == 4) {
-            if (tierStartTimes[3] == 0) {
-                currentTierTokens = tier3Tokens;
-            }
-            currentTierTokens += tier4Tokens;
+            currentTierTokens = tier4Tokens;
         } else if (currentTier == 5) {
-            if (tierStartTimes[3] == 0) {
-                missedTierTokens += tier3Tokens;
-            }
-            if (tierStartTimes[4] == 0) {
-                missedTierTokens += tier4Tokens;
-            }
             currentTierTokens = tier5Tokens;
         }
 
         currentTierTokens += missedTierTokens;
+
         uint256 totalTokens = (totalNFTs * totalTST) / 100;
         uint256 redeemableTokens = (totalTokens * currentTierTokens) / 100;
 
         require(
-            Token.balanceOf(owner()) >= redeemableTokens,
+            balanceOf(address(this)) >= redeemableTokens,
             "Insufficient TST balance in owner's account"
         );
-        Token.transfer(msg.sender, redeemableTokens);
+        transfer(msg.sender, redeemableTokens);
     }
 
     function getCurrentStartedTier() internal view returns (uint256) {
